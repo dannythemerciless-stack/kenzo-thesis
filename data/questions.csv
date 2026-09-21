@@ -1,0 +1,101 @@
+ord,stem,option_a,option_b,option_c,option_d,correct_letter,topic
+1,A student has ₱500 and spends ₱175. How much remains?,₱275,₱300,₱325,₱350,C,arithmetic
+2,What is 25% of 240?,50,60,70,80,B,percentages
+3,A shirt priced at ₱800 is discounted by 15%. What is its sale price?,₱660,₱680,₱700,₱720,B,percentages
+4,A student's score increases from 60 to 75. What is the percentage increase?,15%,20%,25%,30%,C,percentages
+5,The ratio of boys to girls in a class is 2:3. If there are 30 students how many are girls?,12,15,18,20,C,ratio
+6,"What is the average of 12, 18, 20, and 30?",18,19,20,21,C,statistics
+7,A number is increased by 20% from 150. What is the new number?,170,175,180,185,C,percentages
+8,A ₱1000 item is increased in price by 10%. What is its new price?,"₱1,050","₱1,100","₱1,150","₱1,200",B,percentages
+9,What is 3/4 of 64?,36,42,48,52,C,fractions
+10,A student answers 42 of 50 questions correctly. What is the score percentage?,80%,82%,84%,86%,C,percentages
+11,If 5 notebooks cost ₱150 how much do 8 notebooks cost at the same price per notebook?,₱220,₱230,₱240,₱250,C,proportion
+12,A number is decreased by 30% from 200. What is the result?,130,140,150,160,B,percentages
+13,What is the least common multiple of 6 and 8?,12,18,24,48,C,number theory
+14,What is the greatest common factor of 36 and 48?,6,8,12,16,C,number theory
+15,A student spends 40% of ₱750. How much is spent?,₱250,₱275,₱300,₱325,C,percentages
+16,"If x+7=19, what is x?",10,11,12,13,C,algebra
+17,"If 3x=27, what is x?",6,7,8,9,D,algebra
+18,"If 2x+5=17, what is x?",5,6,7,8,B,algebra
+19,"If 5x-10=20, what is x?",4,5,6,7,C,algebra
+20,A number plus twice itself equals 27. What is the number?,7,8,9,10,C,algebra
+21,Two consecutive integers have a sum of 31. What is the smaller integer?,14,15,16,17,B,algebra
+22,"If x^2=81 and x>0, what is x?",7,8,9,10,C,algebra
+23,"If x/4=6, what is x?",18,20,22,24,D,algebra
+24,A number is 5 less than twice another number. If the smaller number is 8 what is the larger number?,11,13,16,21,A,algebra
+25,"If 4(x-2)=20, what is x?",5,6,7,8,C,algebra
+26,The perimeter of a square is 48 cm. What is its side length?,10 cm,12 cm,14 cm,16 cm,B,geometry
+27,A number multiplied by 3 and increased by 4 equals 25. What is the number?,6,7,8,9,B,algebra
+28,"If x+y=18 and x-y=4, what is x?",7,9,11,13,C,algebra
+29,The product of two consecutive positive integers is 72. What is the smaller integer?,6,7,8,9,C,algebra
+30,A rectangle has length x+3 and width x. If its perimeter is 30 what is its width?,5,6,7,8,B,geometry
+31,A car travels 180 km in 3 hours. What is its average speed?,50 km/h,55 km/h,60 km/h,65 km/h,C,rates
+32,"At 60 km/h, how far can a car travel in 45 minutes?",40 km,45 km,50 km,55 km,B,rates
+33,If 4 workers finish a job in 6 days at the same rate how many worker-days are required?,10,18,24,30,C,rates
+34,A machine produces 120 units in 4 hours. How many units does it produce per hour?,20,25,30,35,C,rates
+35,A recipe uses 3 cups of flour for 12 servings. How many cups are needed for 20 servings?,4,5,6,7,B,proportion
+36,A cyclist travels 15 km in 30 minutes. What is the cyclist's speed?,20 km/h,25 km/h,30 km/h,35 km/h,C,rates
+37,If 7 pens cost ₱105 how much does one pen cost?,₱12,₱15,₱17,₱20,B,proportion
+38,A bus consumes 8 liters of fuel for every 100 km. How much fuel is needed for 250 km?,16 L,18 L,20 L,22 L,C,proportion
+39,A student types 300 words in 5 minutes. At the same rate how many words can be typed in 8 minutes?,420,450,480,500,C,rates
+40,Three notebooks cost ₱90. At the same price how much do 10 notebooks cost?,₱270,₱280,₱300,₱320,C,proportion
+41,A rectangle is 12 cm long and 5 cm wide. What is its area?,17 cm²,34 cm²,60 cm²,120 cm²,C,geometry
+42,What is the perimeter of a rectangle measuring 8 m by 5 m?,13 m,26 m,40 m,80 m,B,geometry
+43,A triangle has a base of 10 cm and height of 8 cm. What is its area?,18 cm²,30 cm²,40 cm²,80 cm²,C,geometry
+44,A square has an area of 144 m². What is its perimeter?,24 m,36 m,48 m,56 m,C,geometry
+45,"Using π=22/7, what is the circumference of a circle with radius 7 cm?",22 cm,44 cm,88 cm,154 cm,B,geometry
+46,"Using π=22/7, what is the area of a circle with radius 7 cm?",44 cm²,77 cm²,154 cm²,308 cm²,C,geometry
+47,A right triangle has legs of 6 cm and 8 cm. What is the hypotenuse?,9 cm,10 cm,12 cm,14 cm,B,geometry
+48,A cube has side length 4 cm. What is its volume?,16 cm³,32 cm³,48 cm³,64 cm³,D,geometry
+49,A rectangular room is 10 m long and 6 m wide. How many square meters of flooring are needed?,16,32,60,120,C,geometry
+50,A triangle has angles of 50° and 60°. What is its third angle?,60°,70°,80°,90°,B,geometry
+51,"What is the next number in the sequence 3, 7, 11, 15, …?",17,18,19,20,C,sequences
+52,"What is the next number in the sequence 2, 6, 18, 54, …?",108,124,162,216,C,sequences
+53,The first term of an arithmetic sequence is 5 and the common difference is 3. What is the fifth term?,14,15,17,20,C,sequences
+54,"If f(x)=2x+3, what is f(5)?",10,11,13,15,C,functions
+55,"If f(x)=x^2-1, what is f(4)?",12,15,16,17,B,functions
+56,"A sequence begins 100, 90, 80, 70, … What is the 8th term?",20,30,40,50,B,sequences
+57,"If y=3x-2, what is y when x=6?",14,16,18,20,B,functions
+58,A bacteria population doubles every hour. If there are 200 bacteria initially how many are there after 3 hours?,600,800,"1,200","1,600",D,sequences
+59,"What is the next term: 1, 4, 9, 16, …?",20,24,25,27,C,sequences
+60,"If g(x)=5x-4, for what value of x is g(x)=21?",4,5,6,7,B,functions
+61,A fair die is rolled once. What is the probability of getting an even number?,1/6,1/3,1/2,2/3,C,probability
+62,A bag contains 3 red balls and 7 blue balls. What is the probability of selecting a red ball?,1/10,3/10,1/3,7/10,B,probability
+63,A coin is tossed twice. What is the probability of getting two heads?,1/2,1/3,1/4,1/8,C,probability
+64,"What is the median of 5, 8, 11, 13, and 20?",8,10,11,13,C,statistics
+65,"What is the mode of 4, 6, 6, 7, 8, 6, and 9?",4,6,7,8,B,statistics
+66,"What is the mean of 10, 20, 30, and 40?",20,22.5,25,30,C,statistics
+67,A class has 12 boys and 18 girls. What is the probability of randomly selecting a girl?,2/5,1/2,3/5,2/3,C,probability
+68,A standard deck contains 52 cards. What is the probability of drawing an ace?,1/52,1/26,1/13,4/13,C,probability
+69,The average of five numbers is 20. What is their total?,25,50,80,100,D,statistics
+70,"The scores 70, 75, 80, 85, and 90 have what range?",15,20,25,30,B,statistics
+71,A student earns ₱150 per hour for tutoring. How much does the student earn in 4 hours?,₱450,₱500,₱600,₱650,C,money
+72,A product costs ₱500 and is sold for ₱600. What is the profit?,₱50,₱75,₱100,₱125,C,money
+73,"A ₱2,000 investment earns 5% simple interest for one year. How much interest is earned?",₱50,₱75,₱100,₱150,C,money
+74,"A ₱1,500 item is discounted by 20%. What is the discount amount?",₱200,₱250,₱300,₱350,C,money
+75,A merchant buys an item for ₱400 and sells it for ₱500. What is the profit percentage based on cost?,20%,25%,30%,40%,B,money
+76,A taxi charges ₱50 plus ₱15 per kilometer. How much is the fare for 8 km?,₱150,₱160,₱170,₱180,C,money
+77,"A student's monthly allowance is ₱6,000. If 30% is saved, how much is saved?","₱1,200","₱1,500","₱1,800","₱2,000",C,money
+78,"A phone originally costs ₱20,000 and is discounted to ₱17,000. What is the discount percentage?",10%,12%,15%,20%,C,money
+79,"A student has ₱1,000. After spending 35%, how much remains?",₱550,₱600,₱650,₱700,C,money
+80,"A bank account contains ₱10,000. If it earns 3% simple interest for 2 years, how much interest is earned?",₱300,₱500,₱600,₱900,C,money
+81,The sum of three consecutive integers is 72. What is the largest integer?,23,24,25,26,C,algebra
+82,A father is twice his son's age. Their ages total 54. How old is the son?,16,18,20,22,B,algebra
+83,A rectangle has an area of 48 cm² and a width of 6 cm. What is its length?,6 cm,7 cm,8 cm,9 cm,C,geometry
+84,A student has ₱500. A book costs ₱180 and each pen costs ₱20. What is the maximum number of pens the student can buy after buying the book?,14,15,16,17,C,money
+85,A train travels 240 km in 4 hours. At the same rate how far will it travel in 7 hours?,360 km,400 km,420 km,480 km,C,rates
+86,A tank is 3/5 full. If its total capacity is 500 liters how much water is inside?,200 L,250 L,300 L,350 L,C,fractions
+87,A class has 40 students. If 60% passed an examination how many students passed?,20,22,24,26,C,percentages
+88,A number is increased by 10 and then doubled to give 50. What is the original number?,10,15,20,25,B,algebra
+89,A worker completes 1/4 of a job in 2 hours at a constant rate. How long will the entire job take?,6 hours,8 hours,10 hours,12 hours,B,rates
+90,A 30-liter mixture contains 20% alcohol. How many liters of alcohol does it contain?,5 L,6 L,7 L,8 L,B,percentages
+91,A number is increased by 25% and then decreased by 20%. What is the overall change?,5% increase,No change,5% decrease,10% decrease,B,percentages
+92,A car travels half of a journey at 40 km/h and the other half at 60 km/h. What is its average speed for the entire journey?,45 km/h,48 km/h,50 km/h,52 km/h,B,rates
+93,A rectangle's length is 4 cm greater than its width. Its area is 60 cm². What is its width?,5 cm,6 cm,8 cm,10 cm,B,geometry
+94,Two numbers have a sum of 20 and a product of 96. What is the larger number?,10,12,14,16,B,algebra
+95,A student answers 80% of 75 questions correctly. How many questions were answered incorrectly?,10,12,15,20,C,percentages
+96,"A bag contains 4 red, 5 blue, and 1 green ball. What is the probability of selecting a ball that is not blue?",1/5,2/5,1/2,3/5,C,probability
+97,"The first three terms of an arithmetic sequence are 7, 12, and 17. What is the 20th term?",97,102,107,112,B,sequences
+98,A right triangle has a hypotenuse of 13 cm and one leg of 5 cm. What is the other leg?,8 cm,10 cm,12 cm,14 cm,C,geometry
+99,A student has 60 minutes to answer 100 questions. After 36 minutes 60 questions have been answered. If the student continues at the same rate how many total questions will be answered in 60 minutes?,90,96,100,108,C,rates
+100,"A student answers 40 questions in the first 20 minutes and 30 questions in the next 20 minutes. Continuing at the rate of the most recent 20-minute block, how many questions can the student answer in the final 20 minutes?",20,25,30,35,C,rates

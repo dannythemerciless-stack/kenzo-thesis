@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Experiment artifacts — NEVER commit these
+/out/            # generated keys: mailmerge.csv and assignment.csv
+
+# but DO track the template
+!.env.example

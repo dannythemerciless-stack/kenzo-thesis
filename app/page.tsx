@@ -1,69 +1,120 @@
-import Image from "next/image";
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
-export default function Home() {
+import { KeyEntryForm } from '@/components/KeyEntryForm'
+import { db } from '@/lib/supabase/admin'
+import { resolveSession, ROUTE_FOR_STATE } from '@/lib/dal/attempt'
+
+export const metadata = { title: 'Access' }
+
+const NOTICES: Record<string, string> = {
+  session: 'Your session has ended. Please enter your access key again to continue.',
+  expired: 'Your session has expired.',
+}
+
+export default async function LandingPage({
+  searchParams,
+}: {
+  // Async in Next 16 — synchronous access was fully removed.
+  searchParams: Promise<{ e?: string }>
+}) {
+  const { e } = await searchParams
+  const notice = e ? NOTICES[e] : undefined
+
+  /**
+   * Someone who already holds a session must never be shown a key form.
+   *
+   * Without this, a participant who hits "home" mid-attempt sees what looks
+   * like a fresh start while their clock is still running — and the clock
+   * does not pause. They could sit here losing minutes, or re-enter their key
+   * believing they had lost their place. Send them straight back to wherever
+   * they actually are.
+   *
+   * `debrief` is excluded deliberately: they are finished, so there is
+   * nothing to interrupt, and bouncing them would put the standings out of
+   * reach from the landing page.
+   */
+  const session = await resolveSession()
+  const finished = session.ok && session.state === 'debrief'
+
+  if (session.ok && !finished) {
+    redirect(ROUTE_FOR_STATE[session.state])
+  }
+
+  // Only advertise the standings once they are actually published, so nobody
+  // clicks through to "not published yet" during fieldwork.
+  const { data: cfg } = await db
+    .from('study_config')
+    .select('leaderboard_public')
+    .single()
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-8 px-6 py-16">
+      <header className="space-y-3">
+        <p className="text-sm font-medium tracking-wide text-neutral-500 uppercase">
+          UPLB Department of Economics
+        </p>
+        <h1 className="text-3xl font-semibold tracking-tight text-balance">
+          Digital Micro-Labor Performance Quiz
+        </h1>
+        <p className="text-neutral-600 dark:text-neutral-400">
+          {finished
+            ? 'You have already completed this study.'
+            : 'Enter the one-time access key from your invitation email to begin.'}
+        </p>
+      </header>
+
+      {notice && !finished && (
+        <p
+          role="status"
+          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+        >
+          {notice}
+        </p>
+      )}
+
+      {finished ? (
+        // One key is one attempt, forever. Offering a key box here would
+        // invite someone to try a second run that the database will refuse.
+        <div className="space-y-4 rounded-xl border p-6 dark:border-neutral-800">
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
+            Thank you for taking part. Your responses have been recorded, and
+            each access key may only be used once.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/debrief"
+            className="inline-flex items-center gap-2 text-sm font-medium underline underline-offset-4 hover:no-underline"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            Read about the study again
+            <span aria-hidden>&rarr;</span>
+          </Link>
         </div>
-      </main>
-    </div>
-  );
+      ) : (
+        <>
+          <KeyEntryForm />
+          <noscript>
+            <p className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+              This study requires JavaScript. Please enable it and reload the page.
+            </p>
+          </noscript>
+        </>
+      )}
+
+      <footer className="space-y-4 border-t pt-6 dark:border-neutral-800">
+        {cfg?.leaderboard_public && (
+          <Link
+            href="/leaderboard"
+            className="inline-flex items-center gap-2 text-sm font-medium underline underline-offset-4 hover:no-underline"
+          >
+            View final standings
+            <span aria-hidden>&rarr;</span>
+          </Link>
+        )}
+        <p className="text-xs leading-relaxed text-neutral-500">
+          Your access key is the only identifier used. No name, email address
+          or student number is stored by this application.
+        </p>
+      </footer>
+    </main>
+  )
 }

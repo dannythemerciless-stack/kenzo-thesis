@@ -11,6 +11,11 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // The CLI seed scripts and unit tests run under `node --experimental-strip-types`,
+    // which performs no module resolution and therefore requires explicit .ts
+    // import specifiers. Safe here because noEmit is true — Next compiles with
+    // Turbopack, not tsc.
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
