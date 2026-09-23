@@ -101,25 +101,12 @@ async function main() {
     console.log(`\nDeleting ${existing} existing questions…`)
     const { error } = await db.from('questions').delete().neq('item_code', '')
     if (error) die('failed to clear questions', error)
-    await db.from('import_batches').delete().neq('source_name', '')
   }
-
-  const { data: batch, error: batchErr } = await db
-    .from('import_batches')
-    .insert({
-      source_name: CSV_PATH,
-      source_sha256: `\\x${fileSha}`,
-      row_count: rows.length,
-    })
-    .select('id')
-    .single()
-  if (batchErr) die('failed to create import batch', batchErr)
 
   const questionRows = rows.map((r) => ({
     item_code: `Q${String(r.ord).padStart(3, '0')}`,
     stem: r.stem,
     topic: r.topic || null,
-    batch_id: batch!.id,
   }))
 
   const { data: inserted, error: qErr } = await db
@@ -145,6 +132,13 @@ async function main() {
 
   const { error: oErr } = await db.from('question_options').insert(optionRows)
   if (oErr) die('failed to insert options', oErr)
+
+  // Provenance: which file produced this pool, and its hash.
+  await db.from('study_config').update({
+    pool_source_name: CSV_PATH,
+    pool_source_sha256: `\\x${fileSha}`,
+    pool_imported_at: new Date().toISOString(),
+  }).eq('id', true)
 
   console.log(`\n✔ Imported ${rows.length} questions and ${optionRows.length} options.`)
   console.log(`  source sha256: ${fileSha}`)

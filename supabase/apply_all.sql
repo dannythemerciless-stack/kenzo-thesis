@@ -34,22 +34,6 @@ create type exp.arm as enum ('control', 'treatment');
 
 create type exp.session_status as enum ('in_progress', 'completed', 'timed_out');
 
-create type exp.event_type as enum (
-  'session_start',
-  'session_resume',
-  'item_served',
-  'item_answered',
-  'answer_rejected_stale',
-  'answer_rejected_late',
-  'focus_lost',
-  'focus_regained',
-  'heartbeat',
-  'disqualified',
-  'finalized',
-  'survey_submitted',
-  'debrief_viewed'
-);
-
 -- -----------------------------------------------------------------------------
 -- Study configuration (singleton)
 --
@@ -77,7 +61,14 @@ create table exp.study_config (
   -- blur/focus on an incoming notification, and without a debounce an honest
   -- participant on a phone could be flagged within seconds. Configurable so
   -- tests can disable it.
-  focus_debounce_ms   integer     not null default 1000 check (focus_debounce_ms >= 0)
+  focus_debounce_ms   integer     not null default 1000 check (focus_debounce_ms >= 0),
+
+  -- Provenance of the question pool. Which CSV produced it, and its hash.
+  -- (These were a separate import_batches table; there is only ever one pool,
+  -- so three columns on the single config row says the same thing.)
+  pool_source_name    text,
+  pool_source_sha256  bytea,
+  pool_imported_at    timestamptz
 );
 
 insert into exp.study_config (id) values (true) on conflict do nothing;
@@ -125,21 +116,11 @@ create index        pk_arm_idx     on exp.participant_keys (arm) where not is_te
 -- Question pool
 -- -----------------------------------------------------------------------------
 
-create table exp.import_batches (
-  id            uuid primary key default gen_random_uuid(),
-  source_name   text        not null,
-  source_sha256 bytea       not null,
-  row_count     integer     not null,
-  imported_at   timestamptz not null default now(),
-  note          text
-);
-
 create table exp.questions (
   id          uuid primary key default gen_random_uuid(),
   item_code   text not null,          -- stable id from the source spreadsheet
   stem        text not null,
   topic       text,
-  batch_id    uuid not null references exp.import_batches(id),
   is_active   boolean not null default true,
   -- Post-hoc flag for an item found to be defective after collection started.
   -- This is the ONLY field that may change once the pool is locked.
@@ -221,6 +202,10 @@ create table exp.sessions (
   focus_loss_count  smallint not null default 0 check (focus_loss_count >= 0),
   disqualified      boolean  not null default false,
   disqualified_at   timestamptz,
+  -- Enough state to debounce flapping focus events and to ignore a retried
+  -- beacon, without keeping a row per event.
+  last_focus_loss_at    timestamptz,
+  last_focus_dedupe_key uuid,
 
   -- Randomization provenance. plan_sha256 is published in the thesis appendix;
   -- anyone can re-derive it from the exported plan and confirm nothing moved.
@@ -380,33 +365,6 @@ create index sq_next_unanswered on exp.session_questions (session_id, position)
 create index sq_answered_idx    on exp.session_questions (session_id, answered_at);
 
 -- -----------------------------------------------------------------------------
--- Append-only event log
--- -----------------------------------------------------------------------------
-
-create table exp.session_events (
-  id            bigint generated always as identity primary key,
-  session_id    uuid    not null references exp.sessions(id) on delete cascade,
-  -- Per-session monotonic counter. Two events can share now() within one
-  -- transaction; seq gives the audit trail a total order.
-  seq           integer not null,
-  event_type    exp.event_type not null,
-  position      smallint,
-  server_at     timestamptz not null default now(),
-  client_at     timestamptz,
-  clock_skew_ms integer,
-  -- Client-generated. Makes sendBeacon retries free via ON CONFLICT DO NOTHING.
-  dedupe_key    uuid,
-  payload       jsonb not null default '{}'::jsonb,
-
-  constraint ev_pos_range check (position is null or position between 1 and 200)
-);
-
-create unique index ev_seq_uq    on exp.session_events (session_id, seq);
-create unique index ev_dedupe_uq on exp.session_events (session_id, dedupe_key)
-                                 where dedupe_key is not null;
-create index ev_session_time on exp.session_events (session_id, server_at);
-create index ev_type_time    on exp.session_events (event_type, server_at);
-
 -- -----------------------------------------------------------------------------
 -- Post-quiz survey (Appendix A, Section C)
 --
@@ -458,26 +416,6 @@ create index kal_ip_time on exp.key_attempt_log (ip_hash, attempted_at desc);
 -- =============================================================================
 -- TRIGGERS — the invariants
 -- =============================================================================
-
--- Per-session monotonic event sequence.
-create or replace function exp.next_seq(p_session_id uuid)
-returns integer
-language sql
-security definer
-set search_path = exp, pg_catalog
-as $$
-  select coalesce(max(seq), 0) + 1 from exp.session_events where session_id = p_session_id;
-$$;
-
--- The event log is append-only. An audit trail you can edit is not an audit trail.
-create or replace function exp.tg_append_only() returns trigger
-language plpgsql as $$
-begin
-  raise exception 'session_events is append-only' using errcode = 'restrict_violation';
-end $$;
-
-create trigger ev_append_only before update or delete on exp.session_events
-  for each row execute function exp.tg_append_only();
 
 -- Group assignment is immutable once the participant has been shown something.
 -- An "arm typo" fixed after a session started would silently corrupt the
@@ -842,15 +780,6 @@ begin
   where id = p_session_id
   returning * into s;
 
-  -- lag_sec records how long after the true end this ran. If it is ever large
-  -- and the number is challenged, the event log shows the durations were
-  -- computed from deadline_at and last_answer_at, not from the lag.
-  insert into exp.session_events (session_id, seq, event_type, payload)
-  values (p_session_id, exp.next_seq(p_session_id), 'finalized',
-          jsonb_build_object(
-            'status',   s.status,
-            'answered', s.answered_count,
-            'lag_sec',  round(extract(epoch from (now() - s.ended_at)))));
 
   return s;
 end $$;
@@ -934,8 +863,6 @@ begin
   from unnest(sq.option_order) with ordinality as u(opt_id, ord)
   join exp.question_options o on o.id = u.opt_id;
 
-  insert into exp.session_events (session_id, seq, event_type, position)
-  values (p_session_id, exp.next_seq(p_session_id), 'item_served', sq.position);
 
   v_out := jsonb_build_object(
     'nonce',        v_nonce,
@@ -1031,8 +958,6 @@ begin
   values (p_token_hash, k.id, s.id, now() + make_interval(secs => p_ttl_sec));
 
   if s.id is not null then
-    insert into exp.session_events (session_id, seq, event_type)
-    values (s.id, exp.next_seq(s.id), 'session_resume');
   end if;
 
   return jsonb_build_object(
@@ -1108,9 +1033,6 @@ begin
 
   update exp.browser_sessions set session_id = s.id where token_hash = p_token_hash;
 
-  insert into exp.session_events (session_id, seq, event_type, payload)
-  values (s.id, exp.next_seq(s.id), 'session_start',
-          jsonb_build_object('arm', s.arm, 'itemCount', s.item_count));
 
   return jsonb_build_object('ok', true, 'alreadyStarted', false, 'status', 'in_progress');
 end $$;
@@ -1244,9 +1166,6 @@ begin
   -- request lands just after. late_ms is recorded so the analyst can exclude.
   v_late_ms := round(extract(epoch from (now() - s.deadline_at)) * 1000);
   if v_late_ms > cfg.late_grace_ms then
-    insert into exp.session_events (session_id, seq, event_type, payload)
-    values (s.id, exp.next_seq(s.id), 'answer_rejected_late',
-            jsonb_build_object('late_ms', v_late_ms));
     perform exp.finalize_session(s.id);
     return jsonb_build_object('terminal', 'timed_out');
   end if;
@@ -1255,10 +1174,7 @@ begin
    where session_id = s.id and serve_nonce = p_nonce;
 
   if not found then
-    -- Replayed or forged nonce. Log it and just re-sync the client.
-    insert into exp.session_events (session_id, seq, event_type, payload)
-    values (s.id, exp.next_seq(s.id), 'answer_rejected_stale',
-            jsonb_build_object('nonce', p_nonce));
+    -- Replayed or forged nonce. Just re-sync the client.
     return exp.serve_current_item(s.id, s.arm = 'treatment')
            || jsonb_build_object('resync', true);
   end if;
@@ -1270,9 +1186,6 @@ begin
     end if;
     -- Same nonce, different option: an attempt to change a committed answer.
     -- (The trigger would refuse anyway; this returns a clean resync instead.)
-    insert into exp.session_events (session_id, seq, event_type, position, payload)
-    values (s.id, exp.next_seq(s.id), 'answer_rejected_stale', sq.position,
-            jsonb_build_object('reason', 'answer_change'));
     return exp.serve_current_item(s.id, s.arm = 'treatment')
            || jsonb_build_object('resync', true);
   end if;
@@ -1308,8 +1221,6 @@ begin
   update exp.sessions set hidden_ms_total = hidden_ms_total + greatest(0, coalesce(p_hidden_ms, 0))
    where id = s.id;
 
-  insert into exp.session_events (session_id, seq, event_type, position, client_at)
-  values (s.id, exp.next_seq(s.id), 'item_answered', sq.position, p_client_at);
 
   -- Re-read: the after-answer trigger has updated the counters.
   select * into s from exp.sessions where id = s.id;
@@ -1342,7 +1253,7 @@ language plpgsql
 security definer
 set search_path = exp, pg_catalog
 as $$
-declare bs exp.browser_sessions; s exp.sessions; v_last timestamptz; v_rows integer;
+declare bs exp.browser_sessions; s exp.sessions;
 begin
   select * into bs from exp.browser_sessions
    where token_hash = p_token_hash and expires_at > now();
@@ -1355,34 +1266,28 @@ begin
     return jsonb_build_object('ok', true, 'counted', false);
   end if;
 
-  -- Debounce BEFORE recording. Some mobile browsers flap blur/focus on an
-  -- incoming notification; without this an honest participant on a phone could
-  -- be flagged within seconds.
-  select max(server_at) into v_last
-    from exp.session_events
-   where session_id = s.id and event_type = 'focus_lost';
-
-  if v_last is not null
-     and now() - v_last < make_interval(secs =>
-           (select focus_debounce_ms from exp.study_config) / 1000.0) then
+  -- A retried beacon carries the SAME dedupe key. sendBeacon can fall back to
+  -- fetch, so the identical body may arrive twice; count it once.
+  if p_dedupe_key is not null and s.last_focus_dedupe_key = p_dedupe_key then
     return jsonb_build_object('ok', true, 'counted', false);
   end if;
 
-  insert into exp.session_events (session_id, seq, event_type, client_at, dedupe_key)
-  values (s.id, exp.next_seq(s.id), 'focus_lost', p_client_at, p_dedupe_key)
-  on conflict (session_id, dedupe_key) where dedupe_key is not null do nothing;
-
-  -- Zero rows means this exact beacon already landed (sendBeacon retried).
-  get diagnostics v_rows = row_count;
-  if v_rows = 0 then
+  -- Debounce. Some mobile browsers flap blur/focus on an incoming
+  -- notification; without this an honest participant on a phone could be
+  -- flagged within seconds.
+  if s.last_focus_loss_at is not null
+     and now() - s.last_focus_loss_at < make_interval(secs =>
+           (select focus_debounce_ms from exp.study_config) / 1000.0) then
     return jsonb_build_object('ok', true, 'counted', false);
   end if;
 
   -- The DQ trigger fires on this update. It sets a flag; it shows nothing.
   update exp.sessions set
-    focus_loss_count = focus_loss_count + 1,
-    hidden_ms_total  = hidden_ms_total + greatest(0, coalesce(p_hidden_ms, 0)),
-    last_event_at    = now()
+    focus_loss_count      = focus_loss_count + 1,
+    hidden_ms_total       = hidden_ms_total + greatest(0, coalesce(p_hidden_ms, 0)),
+    last_focus_loss_at    = now(),
+    last_focus_dedupe_key = p_dedupe_key,
+    last_event_at         = now()
   where id = s.id;
 
   return jsonb_build_object('ok', true, 'counted', true);
@@ -1509,8 +1414,6 @@ begin
     p_heard)
   on conflict (session_id) do nothing;
 
-  insert into exp.session_events (session_id, seq, event_type)
-  values (bs.session_id, exp.next_seq(bs.session_id), 'survey_submitted');
 
   return jsonb_build_object('ok', true);
 end $$;
@@ -1532,8 +1435,6 @@ begin
   update exp.sessions set debriefed_at = coalesce(debriefed_at, now())
    where id = bs.session_id;
 
-  insert into exp.session_events (session_id, seq, event_type)
-  values (bs.session_id, exp.next_seq(bs.session_id), 'debrief_viewed');
 
   return jsonb_build_object('ok', true);
 end $$;
@@ -1831,52 +1732,25 @@ order by k.codename, sq.position;
 
 -- ///////////////////// 0004_purge.sql /////////////////////
 -- =============================================================================
--- 0004_purge.sql — make deletion possible, without giving up the audit trail.
+-- 0004_purge.sql — deleting a participant's data.
 --
--- THE BUG THIS FIXES
---
--- exp.session_events has an append-only trigger that refuses UPDATE and
--- DELETE. But session_events references sessions ON DELETE CASCADE, so the
--- cascade fired the trigger and *any* attempt to delete a session failed with
--- "session_events is append-only".
---
--- That made exp.sessions effectively undeletable, which is a problem twice
--- over:
---
+-- Needed for two reasons:
 --   1. ETHICS. The debriefing page tells participants they may contact the
---      researcher to have their data removed. That was unimplementable.
---   2. OPERATIONS. Pilot/test sessions could never be cleaned up.
+--      researcher to have their data removed.
+--   2. OPERATIONS. Pilot sessions have to be cleanable.
 --
--- THE FIX
---
--- The trigger still refuses every casual DELETE. It makes one exception: a
--- transaction that has deliberately set the `exp.allow_purge` flag, which only
--- the documented purge functions below do. So an accidental or ad-hoc delete
--- is still impossible, while a deliberate, auditable withdrawal works.
+-- A delete on exp.sessions cascades to its plan rows and its survey, so these
+-- are thin wrappers. They exist so the operator has a named, obvious action
+-- rather than hand-writing a DELETE against the live database.
 -- =============================================================================
-
-create or replace function exp.tg_append_only() returns trigger
-language plpgsql as $$
-begin
-  -- The escape hatch: set transaction-locally by exp.purge_session().
-  if tg_op = 'DELETE'
-     and coalesce(current_setting('exp.allow_purge', true), 'off') = 'on' then
-    return old;
-  end if;
-
-  raise exception
-    'session_events is append-only (use exp.purge_session() to remove a participant''s data)'
-    using errcode = 'restrict_violation';
-end $$;
 
 -- -----------------------------------------------------------------------------
 -- exp.purge_session — the right-to-withdraw path.
 --
--- Removes the attempt and everything hanging off it (plan rows, per-item
--- timing, event log, survey, browser sessions) by cascade. The participant_keys
--- row is deliberately KEPT: it holds no PII, and retaining it preserves the
--- denominator for the CONSORT flow diagram — you can still report "300 keys
--- issued, n redeemed, 1 withdrawn" rather than silently losing a row.
+-- The participant_keys row is deliberately KEPT: it holds no PII, and
+-- retaining it preserves the denominator for the CONSORT flow diagram — you
+-- can still report "300 keys issued, n redeemed, 1 withdrawn" rather than
+-- silently losing a row.
 -- -----------------------------------------------------------------------------
 create or replace function exp.purge_session(p_session_id uuid)
 returns boolean
@@ -1886,10 +1760,8 @@ set search_path = exp, pg_catalog
 as $$
 declare v_found boolean;
 begin
-  perform set_config('exp.allow_purge', 'on', true);  -- true => transaction-local
   delete from exp.sessions where id = p_session_id;
   get diagnostics v_found = row_count;
-  perform set_config('exp.allow_purge', 'off', true);
   return v_found;
 end $$;
 
@@ -1922,7 +1794,6 @@ set search_path = exp, pg_catalog
 as $$
 declare n integer;
 begin
-  perform set_config('exp.allow_purge', 'on', true);
   with doomed as (
     delete from exp.sessions s
     using exp.participant_keys k
@@ -1930,7 +1801,6 @@ begin
     returning s.id
   )
   select count(*) into n from doomed;
-  perform set_config('exp.allow_purge', 'off', true);
   return n;
 end $$;
 
@@ -1965,6 +1835,10 @@ end $$;
 -- DEFERRABLE constraint trigger requiring a session to have its full plan by
 -- COMMIT, and PostgREST commits every statement separately. Building a
 -- session therefore has to happen inside one transaction, i.e. in here.
+--
+-- NOTE: the rows it writes are deliberately NOT self-consistent — is_correct is
+-- set to hit a target score rather than derived from the option chosen. That is
+-- why `pnpm x audit` excludes synthetic rows from its scoring checks.
 -- =============================================================================
 
 create or replace function exp.make_demo_data(p_n integer default 40)
@@ -2094,13 +1968,11 @@ set search_path = exp, pg_catalog
 as $$
 declare n integer;
 begin
-  perform set_config('exp.allow_purge', 'on', true);
   delete from exp.sessions s
    using exp.participant_keys k
    where k.id = s.key_id and k.block = 900;
   delete from exp.participant_keys where block = 900;
   get diagnostics n = row_count;
-  perform set_config('exp.allow_purge', 'off', true);
   return n;
 end $$;
 
@@ -2113,4 +1985,71 @@ begin
     end if;
   end loop;
 end $$;
+
+-- ///////////////////// 0006_preflight_fix.sql /////////////////////
+-- =============================================================================
+-- 0006_preflight_fix.sql — stop the preflight view crying wolf.
+--
+-- Two bugs in v_preflight_failures:
+--
+--   1. With ZERO real keys issued, the grouped subquery returned no rows, so
+--      `count(distinct n) <> 1` evaluated over an empty set and emitted an
+--      "arm_imbalance" row with a null detail. Before any keys exist there is
+--      nothing to be imbalanced, and a red ✖ that always shows trains you to
+--      ignore the one that matters.
+--
+--   2. It excluded pilot keys but not synthetic demo rows (block 900), so a
+--      demo batch could mask or fake a balance problem.
+--
+-- Also flags the case where one group is missing entirely, which the old
+-- `count(distinct n)` test silently passed.
+-- =============================================================================
+
+create or replace view exp.v_preflight_failures as
+  -- Group sizes must be equal, and both groups must actually exist.
+  select 'arm_imbalance'::text as check_name,
+         jsonb_object_agg(arm, n) as detail
+  from (
+    select arm, count(*) n
+    from exp.participant_keys
+    where not is_test and block < 900          -- real participants only
+    group by arm
+  ) t
+  having count(*) > 0                          -- nothing issued yet is not a failure
+     and (count(*) <> 2 or count(distinct n) <> 1)
+
+union all
+  -- Every active item needs >= 4 options and exactly one correct.
+  select 'question_bad_option_set',
+         jsonb_build_object('item_code', q.item_code,
+                            'options',   (select count(*) from exp.question_options o
+                                           where o.question_id = q.id),
+                            'correct',   (select count(*) from exp.question_options o
+                                           where o.question_id = q.id and o.is_correct))
+  from exp.questions q
+  where q.is_active
+    and ((select count(*) from exp.question_options o where o.question_id = q.id) < 4
+      or (select count(*) from exp.question_options o
+           where o.question_id = q.id and o.is_correct) <> 1)
+
+union all
+  -- The active pool must match the configured item count.
+  select 'pool_size', jsonb_build_object('active', count(*),
+                                         'expected', (select item_count from exp.study_config))
+  from exp.questions where is_active
+  having count(*) <> (select item_count from exp.study_config)
+
+union all
+  -- The pool must be locked before real keys are handed out.
+  select 'pool_not_locked', '{}'::jsonb
+  from exp.study_config where not pool_locked
+
+union all
+  -- Synthetic rows must be gone before fieldwork: they are flagged as REAL
+  -- (that is the only way they appear on the leaderboard), so they would land
+  -- in the export beside genuine participants.
+  select 'demo_rows_present',
+         jsonb_build_object('count', count(*))
+  from exp.participant_keys where block >= 900
+  having count(*) > 0;
 

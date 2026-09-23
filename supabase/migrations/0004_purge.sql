@@ -1,50 +1,23 @@
 -- =============================================================================
--- 0004_purge.sql — make deletion possible, without giving up the audit trail.
+-- 0004_purge.sql — deleting a participant's data.
 --
--- THE BUG THIS FIXES
---
--- exp.session_events has an append-only trigger that refuses UPDATE and
--- DELETE. But session_events references sessions ON DELETE CASCADE, so the
--- cascade fired the trigger and *any* attempt to delete a session failed with
--- "session_events is append-only".
---
--- That made exp.sessions effectively undeletable, which is a problem twice
--- over:
---
+-- Needed for two reasons:
 --   1. ETHICS. The debriefing page tells participants they may contact the
---      researcher to have their data removed. That was unimplementable.
---   2. OPERATIONS. Pilot/test sessions could never be cleaned up.
+--      researcher to have their data removed.
+--   2. OPERATIONS. Pilot sessions have to be cleanable.
 --
--- THE FIX
---
--- The trigger still refuses every casual DELETE. It makes one exception: a
--- transaction that has deliberately set the `exp.allow_purge` flag, which only
--- the documented purge functions below do. So an accidental or ad-hoc delete
--- is still impossible, while a deliberate, auditable withdrawal works.
+-- A delete on exp.sessions cascades to its plan rows and its survey, so these
+-- are thin wrappers. They exist so the operator has a named, obvious action
+-- rather than hand-writing a DELETE against the live database.
 -- =============================================================================
-
-create or replace function exp.tg_append_only() returns trigger
-language plpgsql as $$
-begin
-  -- The escape hatch: set transaction-locally by exp.purge_session().
-  if tg_op = 'DELETE'
-     and coalesce(current_setting('exp.allow_purge', true), 'off') = 'on' then
-    return old;
-  end if;
-
-  raise exception
-    'session_events is append-only (use exp.purge_session() to remove a participant''s data)'
-    using errcode = 'restrict_violation';
-end $$;
 
 -- -----------------------------------------------------------------------------
 -- exp.purge_session — the right-to-withdraw path.
 --
--- Removes the attempt and everything hanging off it (plan rows, per-item
--- timing, event log, survey, browser sessions) by cascade. The participant_keys
--- row is deliberately KEPT: it holds no PII, and retaining it preserves the
--- denominator for the CONSORT flow diagram — you can still report "300 keys
--- issued, n redeemed, 1 withdrawn" rather than silently losing a row.
+-- The participant_keys row is deliberately KEPT: it holds no PII, and
+-- retaining it preserves the denominator for the CONSORT flow diagram — you
+-- can still report "300 keys issued, n redeemed, 1 withdrawn" rather than
+-- silently losing a row.
 -- -----------------------------------------------------------------------------
 create or replace function exp.purge_session(p_session_id uuid)
 returns boolean
@@ -54,10 +27,8 @@ set search_path = exp, pg_catalog
 as $$
 declare v_found boolean;
 begin
-  perform set_config('exp.allow_purge', 'on', true);  -- true => transaction-local
   delete from exp.sessions where id = p_session_id;
   get diagnostics v_found = row_count;
-  perform set_config('exp.allow_purge', 'off', true);
   return v_found;
 end $$;
 
@@ -90,7 +61,6 @@ set search_path = exp, pg_catalog
 as $$
 declare n integer;
 begin
-  perform set_config('exp.allow_purge', 'on', true);
   with doomed as (
     delete from exp.sessions s
     using exp.participant_keys k
@@ -98,7 +68,6 @@ begin
     returning s.id
   )
   select count(*) into n from doomed;
-  perform set_config('exp.allow_purge', 'off', true);
   return n;
 end $$;
 

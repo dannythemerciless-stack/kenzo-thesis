@@ -18,6 +18,10 @@
 -- DEFERRABLE constraint trigger requiring a session to have its full plan by
 -- COMMIT, and PostgREST commits every statement separately. Building a
 -- session therefore has to happen inside one transaction, i.e. in here.
+--
+-- NOTE: the rows it writes are deliberately NOT self-consistent — is_correct is
+-- set to hit a target score rather than derived from the option chosen. That is
+-- why `pnpm x audit` excludes synthetic rows from its scoring checks.
 -- =============================================================================
 
 create or replace function exp.make_demo_data(p_n integer default 40)
@@ -147,13 +151,11 @@ set search_path = exp, pg_catalog
 as $$
 declare n integer;
 begin
-  perform set_config('exp.allow_purge', 'on', true);
   delete from exp.sessions s
    using exp.participant_keys k
    where k.id = s.key_id and k.block = 900;
   delete from exp.participant_keys where block = 900;
   get diagnostics n = row_count;
-  perform set_config('exp.allow_purge', 'off', true);
   return n;
 end $$;
 

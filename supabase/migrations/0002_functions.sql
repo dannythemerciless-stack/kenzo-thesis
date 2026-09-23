@@ -116,15 +116,6 @@ begin
   where id = p_session_id
   returning * into s;
 
-  -- lag_sec records how long after the true end this ran. If it is ever large
-  -- and the number is challenged, the event log shows the durations were
-  -- computed from deadline_at and last_answer_at, not from the lag.
-  insert into exp.session_events (session_id, seq, event_type, payload)
-  values (p_session_id, exp.next_seq(p_session_id), 'finalized',
-          jsonb_build_object(
-            'status',   s.status,
-            'answered', s.answered_count,
-            'lag_sec',  round(extract(epoch from (now() - s.ended_at)))));
 
   return s;
 end $$;
@@ -208,8 +199,6 @@ begin
   from unnest(sq.option_order) with ordinality as u(opt_id, ord)
   join exp.question_options o on o.id = u.opt_id;
 
-  insert into exp.session_events (session_id, seq, event_type, position)
-  values (p_session_id, exp.next_seq(p_session_id), 'item_served', sq.position);
 
   v_out := jsonb_build_object(
     'nonce',        v_nonce,
@@ -305,8 +294,6 @@ begin
   values (p_token_hash, k.id, s.id, now() + make_interval(secs => p_ttl_sec));
 
   if s.id is not null then
-    insert into exp.session_events (session_id, seq, event_type)
-    values (s.id, exp.next_seq(s.id), 'session_resume');
   end if;
 
   return jsonb_build_object(
@@ -382,9 +369,6 @@ begin
 
   update exp.browser_sessions set session_id = s.id where token_hash = p_token_hash;
 
-  insert into exp.session_events (session_id, seq, event_type, payload)
-  values (s.id, exp.next_seq(s.id), 'session_start',
-          jsonb_build_object('arm', s.arm, 'itemCount', s.item_count));
 
   return jsonb_build_object('ok', true, 'alreadyStarted', false, 'status', 'in_progress');
 end $$;
@@ -518,9 +502,6 @@ begin
   -- request lands just after. late_ms is recorded so the analyst can exclude.
   v_late_ms := round(extract(epoch from (now() - s.deadline_at)) * 1000);
   if v_late_ms > cfg.late_grace_ms then
-    insert into exp.session_events (session_id, seq, event_type, payload)
-    values (s.id, exp.next_seq(s.id), 'answer_rejected_late',
-            jsonb_build_object('late_ms', v_late_ms));
     perform exp.finalize_session(s.id);
     return jsonb_build_object('terminal', 'timed_out');
   end if;
@@ -529,10 +510,7 @@ begin
    where session_id = s.id and serve_nonce = p_nonce;
 
   if not found then
-    -- Replayed or forged nonce. Log it and just re-sync the client.
-    insert into exp.session_events (session_id, seq, event_type, payload)
-    values (s.id, exp.next_seq(s.id), 'answer_rejected_stale',
-            jsonb_build_object('nonce', p_nonce));
+    -- Replayed or forged nonce. Just re-sync the client.
     return exp.serve_current_item(s.id, s.arm = 'treatment')
            || jsonb_build_object('resync', true);
   end if;
@@ -544,9 +522,6 @@ begin
     end if;
     -- Same nonce, different option: an attempt to change a committed answer.
     -- (The trigger would refuse anyway; this returns a clean resync instead.)
-    insert into exp.session_events (session_id, seq, event_type, position, payload)
-    values (s.id, exp.next_seq(s.id), 'answer_rejected_stale', sq.position,
-            jsonb_build_object('reason', 'answer_change'));
     return exp.serve_current_item(s.id, s.arm = 'treatment')
            || jsonb_build_object('resync', true);
   end if;
@@ -582,8 +557,6 @@ begin
   update exp.sessions set hidden_ms_total = hidden_ms_total + greatest(0, coalesce(p_hidden_ms, 0))
    where id = s.id;
 
-  insert into exp.session_events (session_id, seq, event_type, position, client_at)
-  values (s.id, exp.next_seq(s.id), 'item_answered', sq.position, p_client_at);
 
   -- Re-read: the after-answer trigger has updated the counters.
   select * into s from exp.sessions where id = s.id;
@@ -616,7 +589,7 @@ language plpgsql
 security definer
 set search_path = exp, pg_catalog
 as $$
-declare bs exp.browser_sessions; s exp.sessions; v_last timestamptz; v_rows integer;
+declare bs exp.browser_sessions; s exp.sessions;
 begin
   select * into bs from exp.browser_sessions
    where token_hash = p_token_hash and expires_at > now();
@@ -629,34 +602,28 @@ begin
     return jsonb_build_object('ok', true, 'counted', false);
   end if;
 
-  -- Debounce BEFORE recording. Some mobile browsers flap blur/focus on an
-  -- incoming notification; without this an honest participant on a phone could
-  -- be flagged within seconds.
-  select max(server_at) into v_last
-    from exp.session_events
-   where session_id = s.id and event_type = 'focus_lost';
-
-  if v_last is not null
-     and now() - v_last < make_interval(secs =>
-           (select focus_debounce_ms from exp.study_config) / 1000.0) then
+  -- A retried beacon carries the SAME dedupe key. sendBeacon can fall back to
+  -- fetch, so the identical body may arrive twice; count it once.
+  if p_dedupe_key is not null and s.last_focus_dedupe_key = p_dedupe_key then
     return jsonb_build_object('ok', true, 'counted', false);
   end if;
 
-  insert into exp.session_events (session_id, seq, event_type, client_at, dedupe_key)
-  values (s.id, exp.next_seq(s.id), 'focus_lost', p_client_at, p_dedupe_key)
-  on conflict (session_id, dedupe_key) where dedupe_key is not null do nothing;
-
-  -- Zero rows means this exact beacon already landed (sendBeacon retried).
-  get diagnostics v_rows = row_count;
-  if v_rows = 0 then
+  -- Debounce. Some mobile browsers flap blur/focus on an incoming
+  -- notification; without this an honest participant on a phone could be
+  -- flagged within seconds.
+  if s.last_focus_loss_at is not null
+     and now() - s.last_focus_loss_at < make_interval(secs =>
+           (select focus_debounce_ms from exp.study_config) / 1000.0) then
     return jsonb_build_object('ok', true, 'counted', false);
   end if;
 
   -- The DQ trigger fires on this update. It sets a flag; it shows nothing.
   update exp.sessions set
-    focus_loss_count = focus_loss_count + 1,
-    hidden_ms_total  = hidden_ms_total + greatest(0, coalesce(p_hidden_ms, 0)),
-    last_event_at    = now()
+    focus_loss_count      = focus_loss_count + 1,
+    hidden_ms_total       = hidden_ms_total + greatest(0, coalesce(p_hidden_ms, 0)),
+    last_focus_loss_at    = now(),
+    last_focus_dedupe_key = p_dedupe_key,
+    last_event_at         = now()
   where id = s.id;
 
   return jsonb_build_object('ok', true, 'counted', true);
@@ -783,8 +750,6 @@ begin
     p_heard)
   on conflict (session_id) do nothing;
 
-  insert into exp.session_events (session_id, seq, event_type)
-  values (bs.session_id, exp.next_seq(bs.session_id), 'survey_submitted');
 
   return jsonb_build_object('ok', true);
 end $$;
@@ -806,8 +771,6 @@ begin
   update exp.sessions set debriefed_at = coalesce(debriefed_at, now())
    where id = bs.session_id;
 
-  insert into exp.session_events (session_id, seq, event_type)
-  values (bs.session_id, exp.next_seq(bs.session_id), 'debrief_viewed');
 
   return jsonb_build_object('ok', true);
 end $$;

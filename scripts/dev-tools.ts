@@ -83,6 +83,17 @@ async function main() {
       await keys()
       break
 
+    case 'setup': {
+      await import('./setup-check.ts')
+      break
+    }
+
+    case 'audit': {
+      // Delegated so the audit can also be run on its own.
+      await import('./audit.ts')
+      break
+    }
+
     case 'reset': {
       const n = await rpc<number>('purge_test_sessions')
       await db.from('browser_sessions').delete().neq('token_hash', '\\x00')
@@ -183,6 +194,8 @@ async function main() {
       console.log(`
   Usage: node --env-file=.env.local scripts/dev-tools.ts <command>
 
+    setup             check a database and print the next command to run
+    audit             full data + scoring integrity check (read-only)
     keys              list test keys and whether each has been used
     reset             wipe all TEST sessions so the test keys are fresh
     timer <seconds>   change the time limit (120 to see the timeout screen)

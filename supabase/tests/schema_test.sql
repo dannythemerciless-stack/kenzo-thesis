@@ -38,7 +38,7 @@ end $$;
 -- Fixture: a 3-item pool, one control key and one treatment key.
 -- =============================================================================
 
-truncate exp.participant_keys, exp.import_batches, exp.questions cascade;
+truncate exp.participant_keys, exp.questions cascade;
 -- Reset EVERY config field the tests touch, so this file is safely re-runnable
 -- against a database a previous run already mutated.
 update exp.study_config set
@@ -50,15 +50,12 @@ update exp.study_config set
   focus_loss_limit  = 5,
   focus_debounce_ms = 1000;
 
-insert into exp.import_batches (id, source_name, source_sha256, row_count)
-values ('11111111-1111-1111-1111-111111111111', 'test.csv', '\x00', 3);
-
 do $$
 declare i int; qid uuid;
 begin
   for i in 1..3 loop
-    insert into exp.questions (item_code, stem, batch_id)
-    values ('T-'||i, 'Question '||i||'?', '11111111-1111-1111-1111-111111111111')
+    insert into exp.questions (item_code, stem)
+    values ('T-'||i, 'Question '||i||'?')
     returning id into qid;
     -- Deliberately mirrors the real source bias: C is always the correct letter.
     insert into exp.question_options (question_id, content, is_correct, source_label, source_ordinal)
@@ -257,9 +254,6 @@ begin
   r := exp.submit_answer('\x01'::bytea, gen_random_uuid(),
         (select id from exp.question_options limit 1));
   perform pg_temp.ok((r->>'resync')::boolean, 'an unknown nonce triggers a clean resync');
-  perform pg_temp.ok(exists (select 1 from exp.session_events
-                              where event_type='answer_rejected_stale'),
-    'the stale submission is recorded in the audit trail');
 end $$;
 
 select pg_temp.raises($$
@@ -338,9 +332,10 @@ begin
     'crossing the limit sets the disqualified flag');
   perform pg_temp.ok((select status = 'in_progress' from exp.sessions where id=sid),
     'disqualification is SILENT — the attempt continues normally');
-  perform pg_temp.ok((select count(*) = 0 from exp.session_events
-                       where session_id = sid and event_type = 'disqualified'),
-    'nothing is surfaced to the participant on disqualification');
+  -- The flag is internal: no column on the session, and nothing in any
+  -- client-facing payload, tells the participant they were flagged.
+  perform pg_temp.ok((exp.get_current_item('\x01'::bytea))::text not like '%disqualif%',
+    'nothing about disqualification reaches the participant');
 end $$;
 
 -- =============================================================================
@@ -487,39 +482,20 @@ begin
 end $$;
 
 -- =============================================================================
--- Deletion: refused casually, permitted deliberately
+-- Deletion: the right-to-withdraw path
 -- =============================================================================
 
-select pg_temp.raises($$
-  delete from exp.session_events where session_id is not null;
-$$, 'the event log still cannot be deleted directly');
-
-select pg_temp.raises($$
-  delete from exp.sessions where id is not null;
-$$, 'a session cannot be deleted casually (the cascade hits the audit trail)');
-
 do $$
-declare sid uuid; n int;
+declare sid uuid;
 begin
   select session_id into sid from exp.browser_sessions where token_hash = '\x02';
 
   perform pg_temp.ok(exp.purge_session(sid),
-    'exp.purge_session() CAN remove a session — the right-to-withdraw path works');
-
+    'exp.purge_session() removes an attempt — the right-to-withdraw path works');
   perform pg_temp.ok((select count(*) = 0 from exp.sessions where id = sid),
     'the session row is gone');
   perform pg_temp.ok((select count(*) = 0 from exp.session_questions where session_id = sid),
     'its plan and per-item timing cascaded away');
-  perform pg_temp.ok((select count(*) = 0 from exp.session_events where session_id = sid),
-    'its event log cascaded away');
   perform pg_temp.ok((select count(*) = 1 from exp.participant_keys where codename = 'brave-tarsier'),
     'the key row is KEPT, so the CONSORT denominator survives a withdrawal');
-
-  -- And the flag must not leak past the purge.
-  perform pg_temp.ok(coalesce(current_setting('exp.allow_purge', true), 'off') = 'off',
-    'the purge escape hatch is closed again afterwards');
 end $$;
-
-select pg_temp.raises($$
-  delete from exp.sessions where id is not null;
-$$, 'deletion is refused again once the purge has finished');

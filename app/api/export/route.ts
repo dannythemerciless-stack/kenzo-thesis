@@ -13,7 +13,6 @@ import { env } from '@/lib/env'
  * Datasets:
  *   wide    one row per participant, analysis-ready for STATA (the main one)
  *   timing  one row per item per participant, for the goal-gradient pace analysis
- *   events  the raw audit trail
  */
 
 export const maxDuration = 60
@@ -21,7 +20,6 @@ export const maxDuration = 60
 const DATASETS = {
   wide: 'v_export_wide',
   timing: 'v_item_timing',
-  events: 'session_events',
 } as const
 
 function authorized(request: Request): boolean {

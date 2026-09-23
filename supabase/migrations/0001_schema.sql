@@ -27,22 +27,6 @@ create type exp.arm as enum ('control', 'treatment');
 
 create type exp.session_status as enum ('in_progress', 'completed', 'timed_out');
 
-create type exp.event_type as enum (
-  'session_start',
-  'session_resume',
-  'item_served',
-  'item_answered',
-  'answer_rejected_stale',
-  'answer_rejected_late',
-  'focus_lost',
-  'focus_regained',
-  'heartbeat',
-  'disqualified',
-  'finalized',
-  'survey_submitted',
-  'debrief_viewed'
-);
-
 -- -----------------------------------------------------------------------------
 -- Study configuration (singleton)
 --
@@ -70,7 +54,14 @@ create table exp.study_config (
   -- blur/focus on an incoming notification, and without a debounce an honest
   -- participant on a phone could be flagged within seconds. Configurable so
   -- tests can disable it.
-  focus_debounce_ms   integer     not null default 1000 check (focus_debounce_ms >= 0)
+  focus_debounce_ms   integer     not null default 1000 check (focus_debounce_ms >= 0),
+
+  -- Provenance of the question pool. Which CSV produced it, and its hash.
+  -- (These were a separate import_batches table; there is only ever one pool,
+  -- so three columns on the single config row says the same thing.)
+  pool_source_name    text,
+  pool_source_sha256  bytea,
+  pool_imported_at    timestamptz
 );
 
 insert into exp.study_config (id) values (true) on conflict do nothing;
@@ -118,21 +109,11 @@ create index        pk_arm_idx     on exp.participant_keys (arm) where not is_te
 -- Question pool
 -- -----------------------------------------------------------------------------
 
-create table exp.import_batches (
-  id            uuid primary key default gen_random_uuid(),
-  source_name   text        not null,
-  source_sha256 bytea       not null,
-  row_count     integer     not null,
-  imported_at   timestamptz not null default now(),
-  note          text
-);
-
 create table exp.questions (
   id          uuid primary key default gen_random_uuid(),
   item_code   text not null,          -- stable id from the source spreadsheet
   stem        text not null,
   topic       text,
-  batch_id    uuid not null references exp.import_batches(id),
   is_active   boolean not null default true,
   -- Post-hoc flag for an item found to be defective after collection started.
   -- This is the ONLY field that may change once the pool is locked.
@@ -214,6 +195,10 @@ create table exp.sessions (
   focus_loss_count  smallint not null default 0 check (focus_loss_count >= 0),
   disqualified      boolean  not null default false,
   disqualified_at   timestamptz,
+  -- Enough state to debounce flapping focus events and to ignore a retried
+  -- beacon, without keeping a row per event.
+  last_focus_loss_at    timestamptz,
+  last_focus_dedupe_key uuid,
 
   -- Randomization provenance. plan_sha256 is published in the thesis appendix;
   -- anyone can re-derive it from the exported plan and confirm nothing moved.
@@ -373,33 +358,6 @@ create index sq_next_unanswered on exp.session_questions (session_id, position)
 create index sq_answered_idx    on exp.session_questions (session_id, answered_at);
 
 -- -----------------------------------------------------------------------------
--- Append-only event log
--- -----------------------------------------------------------------------------
-
-create table exp.session_events (
-  id            bigint generated always as identity primary key,
-  session_id    uuid    not null references exp.sessions(id) on delete cascade,
-  -- Per-session monotonic counter. Two events can share now() within one
-  -- transaction; seq gives the audit trail a total order.
-  seq           integer not null,
-  event_type    exp.event_type not null,
-  position      smallint,
-  server_at     timestamptz not null default now(),
-  client_at     timestamptz,
-  clock_skew_ms integer,
-  -- Client-generated. Makes sendBeacon retries free via ON CONFLICT DO NOTHING.
-  dedupe_key    uuid,
-  payload       jsonb not null default '{}'::jsonb,
-
-  constraint ev_pos_range check (position is null or position between 1 and 200)
-);
-
-create unique index ev_seq_uq    on exp.session_events (session_id, seq);
-create unique index ev_dedupe_uq on exp.session_events (session_id, dedupe_key)
-                                 where dedupe_key is not null;
-create index ev_session_time on exp.session_events (session_id, server_at);
-create index ev_type_time    on exp.session_events (event_type, server_at);
-
 -- -----------------------------------------------------------------------------
 -- Post-quiz survey (Appendix A, Section C)
 --
@@ -451,26 +409,6 @@ create index kal_ip_time on exp.key_attempt_log (ip_hash, attempted_at desc);
 -- =============================================================================
 -- TRIGGERS — the invariants
 -- =============================================================================
-
--- Per-session monotonic event sequence.
-create or replace function exp.next_seq(p_session_id uuid)
-returns integer
-language sql
-security definer
-set search_path = exp, pg_catalog
-as $$
-  select coalesce(max(seq), 0) + 1 from exp.session_events where session_id = p_session_id;
-$$;
-
--- The event log is append-only. An audit trail you can edit is not an audit trail.
-create or replace function exp.tg_append_only() returns trigger
-language plpgsql as $$
-begin
-  raise exception 'session_events is append-only' using errcode = 'restrict_violation';
-end $$;
-
-create trigger ev_append_only before update or delete on exp.session_events
-  for each row execute function exp.tg_append_only();
 
 -- Group assignment is immutable once the participant has been shown something.
 -- An "arm typo" fixed after a session started would silently corrupt the

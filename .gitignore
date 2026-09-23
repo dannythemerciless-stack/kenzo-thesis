@@ -45,3 +45,8 @@ next-env.d.ts
 
 # but DO track the template
 !.env.example
+
+# Google Form exports — contain participant emails. Never commit.
+Recall Capability*.csv
+*responses*.csv
+!data/sample-responses.csv
