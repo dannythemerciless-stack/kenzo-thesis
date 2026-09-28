@@ -23,7 +23,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs'
-import { randomInt, createHash } from 'node:crypto'
+import { randomInt, createHash, createHmac } from 'node:crypto'
 import { parse } from 'csv-parse/sync'
 
 import { makeClient, die } from './lib/client.ts'
@@ -32,6 +32,16 @@ import { shuffle } from '../lib/quiz/randomize.ts'
 const ALPHABET = '23456789ABCDEFGHJKMNPQRSTVWXYZ' // no 0/O, 1/I/L, U
 const BLOCK_SIZE = 10 // 5 treatment + 5 control
 const LEDGER = 'out/issued.csv'
+
+/**
+ * Must match lib/admin/auth.ts hashEmail() exactly, or the dashboard will not
+ * recognise keys issued here and will hand the same person a second one.
+ */
+function hashEmail(email: string): string {
+  const pepper = process.env.SESSION_PEPPER
+  if (!pepper) die('SESSION_PEPPER is missing from .env.local')
+  return `\\x${createHmac('sha256', pepper).update(email.trim().toLowerCase()).digest('hex')}`
+}
 
 type Respondent = { email: string; codename: string }
 
@@ -169,6 +179,29 @@ async function main() {
     : []
   const alreadyIssued = new Set(ledger.map((r) => r.email.toLowerCase()))
 
+  // Keys issued before email_hash existed have none, which makes them
+  // invisible to the dashboard's de-duplication. The ledger still has their
+  // addresses, so fill them in on the way past.
+  const { data: unhashed } = await db
+    .from('participant_keys')
+    .select('key_code')
+    .is('email_hash', null)
+    .eq('is_test', false)
+
+  if (unhashed?.length) {
+    let filled = 0
+    for (const row of unhashed) {
+      const entry = ledger.find((l) => l.key === row.key_code)
+      if (!entry) continue
+      const { error } = await db
+        .from('participant_keys')
+        .update({ email_hash: hashEmail(entry.email) })
+        .eq('key_code', row.key_code)
+      if (!error) filled++
+    }
+    if (filled) console.log(`\n  (filled in the email marker for ${filled} older key(s))`)
+  }
+
   const fresh = respondents.filter((r) => !alreadyIssued.has(r.email))
 
   console.log(`    already issued   ${respondents.length - fresh.length}`)
@@ -271,10 +304,12 @@ async function main() {
 
   // ---- write --------------------------------------------------------------
   const { error } = await db.from('participant_keys').insert(
-    records.map(({ email, ...row }) => {
-      void email // deliberately dropped: no PII reaches the database
-      return row
-    }),
+    records.map(({ email, ...row }) => ({
+      ...row,
+      // The address itself never reaches the database — only a one-way HMAC,
+      // so the dashboard can tell who already holds a key.
+      email_hash: hashEmail(email),
+    })),
   )
   if (error) die('failed to insert keys', error)
 

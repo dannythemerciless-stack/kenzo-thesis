@@ -110,8 +110,7 @@ export async function previewIssue(form: FormData): Promise<IssuePreview> {
 
   const { rows, notes } = normalizeRows(raw, emailCol, nameCol)
 
-  // Who already holds a key? Matched on the email HMAC, so re-uploading the
-  // same export never issues anyone a second key.
+  // Who already holds a key?
   const { data: existing } = await db
     .from('participant_keys')
     .select('key_code, codename, arm, block, email_hash')
@@ -119,7 +118,25 @@ export async function previewIssue(form: FormData): Promise<IssuePreview> {
     .lt('block', 900)
 
   const issuedHashes = new Set((existing ?? []).map((k) => k.email_hash).filter(Boolean))
-  const fresh = rows.filter((r) => !issuedHashes.has(hashEmail(r.email)))
+
+  // Fallback for keys issued before email tracking existed: they have no hash,
+  // so match them on codename instead. Reported rather than done silently,
+  // because two different people could in principle have chosen the same
+  // nickname — in which case the second would wrongly be treated as already
+  // holding a key.
+  const legacyNames = new Set(
+    (existing ?? []).filter((k) => !k.email_hash).map((k) => k.codename.toLowerCase()),
+  )
+
+  const matchedByName: string[] = []
+  const fresh = rows.filter((r) => {
+    if (issuedHashes.has(hashEmail(r.email))) return false
+    if (legacyNames.has(r.codename.trim().toLowerCase())) {
+      matchedByName.push(r.codename.trim())
+      return false
+    }
+    return true
+  })
 
   const { data: allKeys } = await db.from('participant_keys').select('key_code')
 
@@ -130,6 +147,14 @@ export async function previewIssue(form: FormData): Promise<IssuePreview> {
     rows.length - fresh.length,
   )
   plan.notes = [...notes, ...plan.notes]
+
+  if (matchedByName.length) {
+    plan.notes.unshift(
+      `Skipped ${matchedByName.length} person(s) matched by codename only ` +
+      `(${matchedByName.join(', ')}) — these keys pre-date email tracking. ` +
+      `Check they really are the same people.`,
+    )
+  }
 
   return {
     ok: true,

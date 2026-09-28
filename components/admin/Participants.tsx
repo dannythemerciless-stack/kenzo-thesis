@@ -32,6 +32,7 @@ function mmss(sec: number | null) {
 export function Participants({ rows, flagged }: { rows: Row[]; flagged: number }) {
   const [filter, setFilter] = useState<'all' | 'started' | 'flagged'>('all')
   const [q, setQ] = useState('')
+  const [copied, setCopied] = useState<string | null>(null)
 
   const shown = rows
     .filter((r) =>
@@ -84,6 +85,7 @@ export function Participants({ rows, flagged }: { rows: Row[]; flagged: number }
           <thead className="bg-neutral-50 text-left text-neutral-500 dark:bg-neutral-900">
             <tr>
               <th className="px-3 py-2 font-medium">Codename</th>
+              <th className="px-3 py-2 font-medium">Access key</th>
               <th className="px-3 py-2 font-medium">Group</th>
               <th className="px-3 py-2 font-medium">Status</th>
               <th className="px-3 py-2 text-right font-medium">Answered</th>
@@ -100,6 +102,16 @@ export function Participants({ rows, flagged }: { rows: Row[]; flagged: number }
                   {r.disqualified && (
                     <span title="Switched away 5+ times" className="ml-1.5 text-amber-600">⚑</span>
                   )}
+                </td>
+                <td className="px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => { void navigator.clipboard.writeText(r.key_code); setCopied(r.key_code) }}
+                    title="Click to copy"
+                    className="font-mono text-xs text-neutral-500 underline-offset-2 hover:text-neutral-900 hover:underline dark:hover:text-neutral-100"
+                  >
+                    {copied === r.key_code ? 'copied' : r.key_code}
+                  </button>
                 </td>
                 <td className="px-3 py-2 text-neutral-500">
                   {r.arm === 'treatment' ? 'progress bar' : 'no bar'}
