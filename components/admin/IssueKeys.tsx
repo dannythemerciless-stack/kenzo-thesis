@@ -129,6 +129,7 @@ export function IssueKeys() {
                       <tr>
                         <th className="px-3 py-2 font-medium">Email</th>
                         <th className="px-3 py-2 font-medium">Will appear as</th>
+                        <th className="px-3 py-2 font-medium">Group</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -136,18 +137,19 @@ export function IssueKeys() {
                         <tr key={r.email} className="border-t dark:border-neutral-800">
                           <td className="px-3 py-1.5 font-mono text-xs">{r.email}</td>
                           <td className="px-3 py-1.5 font-mono text-xs">{r.codename}</td>
+                          <td className="px-3 py-1.5 text-xs text-neutral-500">
+                            {r.arm === 'treatment' ? 'progress bar' : 'no bar'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                {/* Group assignment is deliberately absent. Whoever sends the
-                    emails should not know who is in which group, so nothing on
-                    the path to the mail merge reveals it. */}
+                {/* The downloaded mail-merge file still omits the group, so the
+                    emails themselves cannot be coloured by it. */}
                 <p className="mt-2 text-xs text-neutral-500">
-                  Keys are generated when you confirm. Which group each person is
-                  in is not shown here, so that sending the emails cannot be
-                  influenced by knowing it.
+                  Keys are generated when you confirm. The mail-merge download
+                  does not include the group column.
                 </p>
               </div>
             )}
