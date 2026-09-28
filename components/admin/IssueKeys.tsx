@@ -118,6 +118,40 @@ export function IssueKeys() {
               </details>
             )}
 
+            {preview.plan.records.length > 0 && (
+              <div>
+                <div className="mb-2 text-sm font-medium">
+                  These {preview.plan.records.length} people will get a key
+                </div>
+                <div className="max-h-64 overflow-y-auto rounded-lg border dark:border-neutral-800">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-neutral-50 text-left text-neutral-500 dark:bg-neutral-900">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Email</th>
+                        <th className="px-3 py-2 font-medium">Will appear as</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.plan.records.map((r) => (
+                        <tr key={r.email} className="border-t dark:border-neutral-800">
+                          <td className="px-3 py-1.5 font-mono text-xs">{r.email}</td>
+                          <td className="px-3 py-1.5 font-mono text-xs">{r.codename}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Group assignment is deliberately absent. Whoever sends the
+                    emails should not know who is in which group, so nothing on
+                    the path to the mail merge reveals it. */}
+                <p className="mt-2 text-xs text-neutral-500">
+                  Keys are generated when you confirm. Which group each person is
+                  in is not shown here, so that sending the emails cannot be
+                  influenced by knowing it.
+                </p>
+              </div>
+            )}
+
             {preview.plan.records.length > 0 ? (
               <button
                 onClick={onConfirm}
