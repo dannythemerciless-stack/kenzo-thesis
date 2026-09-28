@@ -4,6 +4,7 @@ import { AdminLogin } from '@/components/admin/AdminLogin'
 import { Switches } from '@/components/admin/Switches'
 import { IssueKeys } from '@/components/admin/IssueKeys'
 import { Participants } from '@/components/admin/Participants'
+import { PilotKeys } from '@/components/admin/PilotKeys'
 import { DataTools } from '@/components/admin/DataTools'
 import { DangerZone } from '@/components/admin/DangerZone'
 import { logout } from './actions'
@@ -49,6 +50,7 @@ export default async function AdminPage() {
 
   const all = (rows ?? []) as Row[]
   const real = all.filter((r) => !r.is_test && r.block < 900)
+  const pilots = all.filter((r) => r.is_test)
   const started = real.filter((r) => r.started)
 
   const inProgress = started.filter((r) => r.status === 'in_progress').length
@@ -118,6 +120,8 @@ export default async function AdminPage() {
       <IssueKeys />
 
       <Participants rows={real} flagged={flagged} />
+
+      <PilotKeys rows={pilots} />
 
       <DataTools />
 

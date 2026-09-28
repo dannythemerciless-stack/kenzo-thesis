@@ -8,8 +8,8 @@ import {
   checkAdminKey, startAdminSession, endAdminSession, requireAdmin, hashEmail,
 } from '@/lib/admin/auth'
 import {
-  planIssuance, normalizeRows, findColumn, EMAIL_NEEDLES, CODENAME_NEEDLES,
-  type IssuePlan,
+  planIssuance, normalizeRows, findColumn, makeKey,
+  EMAIL_NEEDLES, CODENAME_NEEDLES, type IssuePlan,
 } from '@/lib/keys/issue'
 
 export type LoginState = { error?: string }
@@ -239,4 +239,77 @@ export async function wipeEverything(confirmation: string): Promise<{ ok: boolea
   revalidatePath('/admin')
   revalidatePath('/leaderboard')
   return { ok: true, message: 'All participants, attempts and answers deleted. Questions and settings kept.' }
+}
+
+// ------------------------------------------------------------- pilot keys ---
+
+/**
+ * Pilot keys let the researcher walk through the quiz without touching the
+ * study. They are flagged `is_test`, which every analysis view filters out, so
+ * nothing done with them can reach the dataset. They also work while the study
+ * is closed, so the questions can still be edited between trial runs.
+ */
+export async function createPilotKeys(count: number): Promise<{ ok: boolean; message: string }> {
+  await requireAdmin()
+
+  const n = Math.min(Math.max(Math.round(count), 1), 20)
+
+  const { data: taken } = await db.from('participant_keys').select('key_code, codename')
+  const takenKeys = new Set((taken ?? []).map((k) => k.key_code))
+  const takenNames = new Set((taken ?? []).map((k) => k.codename.toLowerCase()))
+
+  const words = ['osprey', 'heron', 'tarsier', 'gecko', 'finch', 'otter', 'crane',
+    'marlin', 'python', 'egret', 'ibis', 'falcon', 'moth', 'teal', 'swift']
+
+  const rows: { key_code: string; codename: string; arm: 'control' | 'treatment'; block: number; is_test: boolean }[] = []
+
+  for (let i = 0; i < n; i++) {
+    let key = makeKey()
+    while (takenKeys.has(key)) key = makeKey()
+    takenKeys.add(key)
+
+    let name = `test-${words[i % words.length]}`
+    let suffix = 2
+    while (takenNames.has(name.toLowerCase())) name = `test-${words[i % words.length]}-${suffix++}`
+    takenNames.add(name.toLowerCase())
+
+    rows.push({
+      key_code: key,
+      codename: name,
+      // Alternate, so there is always one of each to compare side by side.
+      arm: i % 2 === 0 ? 'control' : 'treatment',
+      block: 0,
+      is_test: true,
+    })
+  }
+
+  const { error } = await db.from('participant_keys').insert(rows)
+  if (error) return { ok: false, message: `Could not create pilot keys: ${error.message}` }
+
+  revalidatePath('/admin')
+  return { ok: true, message: `Created ${n} pilot key${n === 1 ? '' : 's'}.` }
+}
+
+/** Wipe pilot attempts so the same pilot keys can be used again. */
+export async function resetPilotSessions(): Promise<{ ok: boolean; message: string }> {
+  await requireAdmin()
+  const n = await rpc<number>('purge_test_sessions')
+  await db.from('browser_sessions').delete().neq('token_hash', '\\x00')
+  revalidatePath('/admin')
+  return {
+    ok: true,
+    message: n
+      ? `Cleared ${n} pilot attempt${n === 1 ? '' : 's'}. Those keys can be used again.`
+      : 'No pilot attempts to clear — the keys are already unused.',
+  }
+}
+
+/** Remove all pilot keys entirely. */
+export async function deletePilotKeys(): Promise<{ ok: boolean; message: string }> {
+  await requireAdmin()
+  await rpc('purge_test_sessions')
+  const { error } = await db.from('participant_keys').delete().eq('is_test', true)
+  if (error) return { ok: false, message: error.message }
+  revalidatePath('/admin')
+  return { ok: true, message: 'Pilot keys deleted.' }
 }
