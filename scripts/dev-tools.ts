@@ -83,6 +83,11 @@ async function main() {
       await keys()
       break
 
+    case 'wipe': {
+      await import('./wipe.ts')
+      break
+    }
+
     case 'setup': {
       await import('./setup-check.ts')
       break
@@ -195,6 +200,7 @@ async function main() {
   Usage: node --env-file=.env.local scripts/dev-tools.ts <command>
 
     setup             check a database and print the next command to run
+    wipe              delete ALL participant data (backs up first, asks to confirm)
     audit             full data + scoring integrity check (read-only)
     keys              list test keys and whether each has been used
     reset             wipe all TEST sessions so the test keys are fresh

@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 
 import { db, rpc } from '@/lib/supabase/admin'
 import { env } from '@/lib/env'
+import { isAdmin } from '@/lib/admin/auth'
 
 /**
  * Researcher CSV export. A Route Handler because Server Actions cannot return
@@ -22,7 +23,13 @@ const DATASETS = {
   timing: 'v_item_timing',
 } as const
 
-function authorized(request: Request): boolean {
+/**
+ * Two ways in: a Bearer token for scripts and curl, or a signed-in dashboard
+ * session for the download buttons (a browser link cannot set a header).
+ */
+async function authorized(request: Request): Promise<boolean> {
+  if (await isAdmin()) return true
+
   const header = request.headers.get('authorization') ?? ''
   const provided = header.replace(/^Bearer\s+/i, '')
   const expected = env.RESEARCHER_EXPORT_TOKEN
@@ -50,7 +57,7 @@ function toCsv(rows: Record<string, unknown>[]): string {
 }
 
 export async function GET(request: Request) {
-  if (!authorized(request)) {
+  if (!(await authorized(request))) {
     return new Response('Unauthorized', { status: 401 })
   }
 

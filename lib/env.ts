@@ -24,6 +24,11 @@ const schema = z.object({
 
   // Bearer token for GET /api/export.
   RESEARCHER_EXPORT_TOKEN: z.string().min(32, 'generate with: openssl rand -hex 32'),
+
+  // Password for the /admin dashboard. That dashboard can wipe every
+  // participant, so this must be long and random, not a memorable phrase.
+  // Optional so the app still boots without it; /admin simply refuses to open.
+  ADMIN_KEY: z.string().min(24, 'generate with: openssl rand -hex 32').optional(),
 })
 
 const parsed = schema.safeParse(process.env)

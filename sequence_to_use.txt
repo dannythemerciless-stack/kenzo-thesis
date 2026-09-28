@@ -1,0 +1,6 @@
+pnpm x wipe                          # clear participants
+pnpm issue data/kenzo_participants_v0.csv --dry-run
+pnpm issue data/kenzo_participants_v0.csv
+pnpm x lock                          # ← keys start working
+# ... email everyone, wait for them to finish ...
+pnpm x publish                       # ← only at the very end

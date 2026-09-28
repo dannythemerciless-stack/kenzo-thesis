@@ -1,6 +1,7 @@
 # Runbook
 
 Operating manual for the goal-proximity experiment platform.
+See **DATABASE.md** for what the data means and why each table exists.
 
 ---
 
@@ -51,6 +52,7 @@ Until then: assume every command is live.
 | `pnpm x unlock` | Unfreeze (only before collection starts) |
 | `pnpm x publish` / `unpublish` | Show / hide the public leaderboard |
 | `pnpm x withdraw <KEY>` | Delete one participant's data (right to withdraw) |
+| `pnpm x wipe` | Delete ALL participant data — backs up first, asks to confirm |
 
 ### Testing
 

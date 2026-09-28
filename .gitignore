@@ -46,7 +46,13 @@ next-env.d.ts
 # but DO track the template
 !.env.example
 
-# Google Form exports — contain participant emails. Never commit.
-Recall Capability*.csv
-*responses*.csv
+# Google Form exports — contain participant emails and demographics.
+# Default to ignoring EVERY csv under data/, then allow back the two that are
+# genuinely part of the project. A new export dropped in with any filename is
+# then ignored automatically, rather than only if it happens to match a pattern.
+data/*.csv
+!data/questions.csv
 !data/sample-responses.csv
+
+# Backups made by `pnpm x wipe`
+/out/backup-*/
